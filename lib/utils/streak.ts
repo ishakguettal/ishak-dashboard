@@ -40,3 +40,23 @@ export function currentStreak(
   }
   return streak;
 }
+
+/** Longest run of consecutive 100%-completion days in the given history. */
+export function longestStreak(
+  logs: { log_date: string; completion_pct: number | string }[],
+): number {
+  const days = logs
+    .filter((l) => Number(l.completion_pct) >= 100)
+    .map((l) => l.log_date)
+    .sort();
+
+  let best = 0;
+  let run = 0;
+  let prev: string | null = null;
+  for (const d of days) {
+    run = prev && addDaysISO(prev, 1) === d ? run + 1 : 1;
+    if (run > best) best = run;
+    prev = d;
+  }
+  return best;
+}
