@@ -20,6 +20,8 @@ export interface Profile {
   summer_break_until: string | null;
   day_start_time: string;
   day_end_time: string;
+  deload_active: boolean;
+  deload_percentage: number;
   created_at: string;
   updated_at: string;
 }
@@ -83,7 +85,19 @@ export type WorkoutTypeValue =
 export interface WorkoutScheduleRow extends BaseRow {
   weekday: number;
   workout_type: WorkoutTypeValue;
+  custom_name: string | null;
   label: string | null;
+}
+
+export interface ScheduleExercise extends BaseRow {
+  schedule_id: string;
+  exercise_id: string | null;
+  target_sets: number;
+  target_rep_min: number;
+  target_rep_max: number;
+  sort_order: number;
+  superset_group: string | null;
+  is_back_sensitive: boolean;
 }
 
 export interface Exercise extends BaseRow {

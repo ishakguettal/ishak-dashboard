@@ -1,15 +1,22 @@
-export type OverloadAction = "increase" | "hold" | "build" | "deload";
+export type OverloadAction = "increase" | "hold" | "build" | "deload" | "form";
 
 export interface OverloadAdvice {
   action: OverloadAction;
+  /** Short chip text, e.g. "+2.5kg ready", "Hold steady", "Consider deload". */
+  label: string;
+  /** Longer one-line explanation. */
   message: string;
   suggestedWeight?: number;
   tone: "success" | "info" | "warning";
 }
 
+type SetLite = { reps: number | null; weight: number | null };
+
 export interface OverloadInput {
   /** Working sets from the most recent session for this exercise. */
-  lastWorkingSets: { reps: number | null; weight: number | null }[];
+  lastWorkingSets: SetLite[];
+  /** Working sets from the session before that (optional, enables 2-session rule). */
+  prevWorkingSets?: SetLite[];
   repMin: number;
   repMax: number;
   weightIncrement: number;
@@ -19,75 +26,86 @@ export interface OverloadInput {
 }
 
 /**
- * Progressive-overload coach. Mindful of the L5-S1 disc: it never suggests a
- * load increase when recent back pain is high, and recommends a deload instead.
+ * Progressive-overload coach. Mindful of the L5-S1 disc: never suggests a load
+ * increase when recent back pain is high, and recommends a deload instead.
+ *
+ * Increase rule: all working sets hit the top of the rep range in the last
+ * *two* sessions AND back pain ≤ 4 in both → +weight_increment.
  */
 export function suggestOverload(input: OverloadInput): OverloadAdvice {
-  const { lastWorkingSets, repMin, repMax, weightIncrement } = input;
-  const sets = lastWorkingSets.filter((s) => (s.reps ?? 0) > 0);
+  const { repMin, repMax, weightIncrement, recentBackPain, isBackSensitive } =
+    input;
+  const sets = input.lastWorkingSets.filter((s) => (s.reps ?? 0) > 0);
 
   if (sets.length === 0) {
     return {
       action: "hold",
       tone: "info",
+      label: "No data",
       message: "Log a working set to start tracking progress.",
     };
   }
 
   const topWeight = Math.max(...sets.map((s) => Number(s.weight ?? 0)));
-  const painFlag =
-    input.recentBackPain.some((p) => p >= 7) || input.isBackSensitive;
-  const recentHighPain = input.recentBackPain.some((p) => p >= 7);
+  const highPain = recentBackPain.some((p) => p >= 7);
 
-  if (recentHighPain) {
+  if (highPain) {
+    const w = round(topWeight * 0.9, weightIncrement);
     return {
       action: "deload",
       tone: "warning",
-      suggestedWeight: round(topWeight * 0.9, weightIncrement),
-      message: `Back pain was high recently — deload ~10% to about ${round(
-        topWeight * 0.9,
-        weightIncrement,
-      )} kg and prioritise form.`,
+      label: "Consider deload",
+      suggestedWeight: w,
+      message: `Back pain was high recently — deload ~10% to about ${w}kg and prioritise form.`,
     };
   }
 
-  const allHitTop = sets.every((s) => (s.reps ?? 0) >= repMax);
-  const allAtLeastMin = sets.every((s) => (s.reps ?? 0) >= repMin);
+  const prev = (input.prevWorkingSets ?? []).filter((s) => (s.reps ?? 0) > 0);
+  const allHitTopLast = sets.every((s) => (s.reps ?? 0) >= repMax);
+  const allHitTopPrev =
+    prev.length === 0 ? true : prev.every((s) => (s.reps ?? 0) >= repMax);
+  const backOk =
+    recentBackPain.length === 0 ? true : recentBackPain.every((p) => p <= 4);
+  const belowMin = sets.some((s) => (s.reps ?? 0) < repMin);
 
-  if (allHitTop && !painFlag) {
+  if (allHitTopLast && allHitTopPrev && backOk && !isBackSensitive) {
     const next = topWeight + weightIncrement;
     return {
       action: "increase",
       tone: "success",
+      label: `+${weightIncrement}kg ready`,
       suggestedWeight: next,
-      message: `All sets hit ${repMax} reps with low back pain — add ${weightIncrement} kg to ${next} kg.`,
+      message: `Top of the range hit with low back pain — add ${weightIncrement}kg to ${next}kg.`,
     };
   }
 
-  if (allHitTop && painFlag) {
+  if (allHitTopLast && isBackSensitive) {
     return {
       action: "hold",
       tone: "info",
+      label: "Hold steady",
       suggestedWeight: topWeight,
       message:
-        "Reps are there, but keep the weight steady this exercise is back-sensitive.",
+        "Reps are there, but this lift is back-sensitive — keep the weight steady.",
     };
   }
 
-  if (allAtLeastMin) {
+  if (belowMin) {
     return {
-      action: "build",
-      tone: "info",
+      action: "form",
+      tone: "warning",
+      label: "Form check",
       suggestedWeight: topWeight,
-      message: `Stay at ${topWeight} kg and push toward ${repMax} reps on every set.`,
+      message: `Reps dropped below ${repMin} — check form and hold ${topWeight}kg until they return.`,
     };
   }
 
   return {
     action: "hold",
     tone: "info",
+    label: "Hold steady",
     suggestedWeight: topWeight,
-    message: `Keep ${topWeight} kg until you clear ${repMin}+ reps on all sets.`,
+    message: `Stay at ${topWeight}kg and push toward ${repMax} reps on every set.`,
   };
 }
 

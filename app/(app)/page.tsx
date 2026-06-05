@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { DailySync } from "@/components/daily/DailySync";
-import { HeroRow, type Glance } from "@/components/daily/HeroRow";
+import { HeroRow } from "@/components/daily/HeroRow";
+import { type SmartData } from "@/components/daily/SmartPanel";
 import { TodayTasks } from "@/components/daily/TodayTasks";
 import { PlanTomorrow } from "@/components/daily/PlanTomorrow";
 import { HealthStrip } from "@/components/daily/HealthStrip";
@@ -80,6 +81,10 @@ export default async function DailyHQ() {
     accountsRes,
     exercisesRes,
     setsRes,
+    overdueTasksRes,
+    sleep7Res,
+    bodyWeightsRes,
+    schedExRes,
   ] = await Promise.all([
     supabase.from("profiles").select("*").maybeSingle(),
     supabase.from("health_profile").select("*").maybeSingle(),
@@ -103,7 +108,7 @@ export default async function DailyHQ() {
       .eq("log_date", today),
     supabase
       .from("workout_schedule")
-      .select("workout_type,label")
+      .select("id,workout_type,custom_name,label")
       .eq("weekday", weekday)
       .maybeSingle(),
     supabase
@@ -149,6 +154,27 @@ export default async function DailyHQ() {
       .select("reps,weight,is_warmup,exercise_id,workout_sessions(session_date)")
       .order("created_at", { ascending: false })
       .limit(200),
+    supabase
+      .from("tasks")
+      .select("title")
+      .lt("due_date", today)
+      .eq("status", "todo")
+      .order("due_date")
+      .limit(20),
+    supabase
+      .from("sleep_logs")
+      .select("hours,quality,log_date")
+      .order("log_date", { ascending: false })
+      .limit(7),
+    supabase
+      .from("body_weights")
+      .select("weight_kg,recorded_on")
+      .order("recorded_on", { ascending: false })
+      .limit(10),
+    supabase
+      .from("schedule_exercises")
+      .select("schedule_id,sort_order,exercises(name)")
+      .order("sort_order"),
   ]);
 
   const profile = profileRes.data ?? {};
@@ -192,17 +218,41 @@ export default async function DailyHQ() {
   const pendingSupplements = supplements.filter((s) => !s.taken);
 
   const nowMin = dubaiNowMinutes();
-  const overdueSupp =
-    pendingSupplements.find((s) => {
+  const overdueSuppNames = pendingSupplements
+    .filter((s) => {
       const due = toMin(s.reminder_time);
       return due != null && nowMin > due;
-    })?.name ?? null;
+    })
+    .map((s) => s.name);
+  const upcomingSuppNames = pendingSupplements
+    .filter((s) => {
+      const due = toMin(s.reminder_time);
+      return due == null || nowMin <= due;
+    })
+    .map((s) => s.name);
+  const takenSuppNames = supplements.filter((s) => s.taken).map((s) => s.name);
 
   // ---- Workout ----
   const schedule = scheduleRes.data;
   const plannedType = schedule?.workout_type ?? "rest";
+  const customName: string | null = schedule?.custom_name ?? null;
+  const scheduleId: string | null = schedule?.id ?? null;
   const isRestDay = plannedType === "rest";
   const isTrainingDay = !isRestDay;
+
+  // Today's planned exercises (names), for the workout card chips.
+  const schedExAll = (schedExRes.data ?? []) as unknown as {
+    schedule_id: string;
+    sort_order: number;
+    exercises: { name: string } | null;
+  }[];
+  const plannedExercises = scheduleId
+    ? schedExAll
+        .filter((r) => r.schedule_id === scheduleId)
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((r) => r.exercises?.name)
+        .filter((n): n is string => !!n)
+    : [];
 
   const sessionToday = sessionTodayRes.data as
     | { id: string; back_pain: number | null; completed: boolean }
@@ -427,15 +477,102 @@ export default async function DailyHQ() {
     ? { name: soonSubs[0].name, days: daysUntil(soonSubs[0].next_renewal!, today) }
     : null;
 
-  const glance: Glance = {
-    tasksDone,
-    tasksTotal: todayTasks.length,
-    waterMl: waterTotal,
-    waterTargetMl: waterTarget,
-    overdueSupp,
-    backWarn: lastBackPain != null && lastBackPain >= 7 ? lastBackPain : null,
-    careerFollowups,
-    subsSoonAED: subsTotalAED > 0 ? subsTotalAED : null,
+  const overdueApplications = activeApps.filter(
+    (a) =>
+      (a.follow_up_date != null && daysUntil(a.follow_up_date, today) < 0) ||
+      (a.deadline != null && daysUntil(a.deadline, today) < 0),
+  ).length;
+
+  // ---- Sleep window (7-day average) ----
+  const sleep7 = (sleep7Res.data ?? []) as {
+    hours: number | null;
+    quality: number | null;
+  }[];
+  const sleepHoursVals = sleep7
+    .map((s) => s.hours)
+    .filter((h): h is number => h != null);
+  const sleepAvg7 = sleepHoursVals.length
+    ? Math.round((sleepHoursVals.reduce((a, b) => a + b, 0) / sleepHoursVals.length) * 10) / 10
+    : 0;
+
+  // ---- Body weight + 7-day trend ----
+  const bodyWeights = (bodyWeightsRes.data ?? []) as {
+    weight_kg: number;
+    recorded_on: string;
+  }[];
+  const lastKg = bodyWeights[0]?.weight_kg ?? 0;
+  const weekAgoCut = addDaysISO(today, -7);
+  const prevWeightRow =
+    bodyWeights.find((w) => w.recorded_on <= weekAgoCut) ??
+    bodyWeights[bodyWeights.length - 1];
+  const weightTrend7 =
+    bodyWeights.length >= 2 && prevWeightRow
+      ? Math.round((lastKg - prevWeightRow.weight_kg) * 10) / 10
+      : 0;
+
+  const overdueTaskTitles = (overdueTasksRes.data ?? [])
+    .map((t: { title: string }) => t.title)
+    .filter(Boolean);
+
+  const back3 = allSessions
+    .map((s) => s.back_pain)
+    .filter((p): p is number => p != null)
+    .slice(0, 3);
+
+  const timeOfDay: SmartData["time_of_day"] =
+    nowMin < 11 * 60
+      ? "morning"
+      : nowMin < 16 * 60
+        ? "midday"
+        : nowMin < 20 * 60
+          ? "evening"
+          : "night";
+
+  const streakAtRisk =
+    streak > 0 &&
+    completion < 100 &&
+    (timeOfDay === "evening" || timeOfDay === "night");
+
+  const smart: SmartData = {
+    tasks: {
+      completed: tasksDone,
+      total: todayTasks.length,
+      overdue: overdueTaskTitles,
+    },
+    water: { current_ml: waterTotal, target_ml: waterTarget },
+    supplements: {
+      overdue: overdueSuppNames,
+      upcoming: upcomingSuppNames,
+      taken: takenSuppNames,
+    },
+    sleep: {
+      last_hours: sleepToday?.hours ?? 0,
+      last_quality: sleepToday?.quality ?? 0,
+      avg_7day: sleepAvg7,
+    },
+    back_pain: { last_session: lastBackPain ?? 0, last_3_sessions: back3 },
+    workout: {
+      today_type: customName || plannedType,
+      logged_today: workoutDone,
+      days_since_last: lastWorkout ? lastWorkout.daysAgo : 999,
+      is_rest_day: isRestDay,
+    },
+    career: {
+      follow_ups_due: careerFollowups,
+      overdue_applications: overdueApplications,
+    },
+    finance: {
+      renewals_this_week: soonSubs.length,
+      renewal_amount: subsTotalAED,
+    },
+    mood: {
+      logged_today: moodLogged,
+      last_mood: dailyLog?.mood ?? 0,
+      last_energy: dailyLog?.energy ?? 0,
+    },
+    body_weight: { last_kg: lastKg, trend_7day: weightTrend7 },
+    streak: { current: streak, at_risk: streakAtRisk },
+    time_of_day: timeOfDay,
   };
 
   return (
@@ -450,7 +587,7 @@ export default async function DailyHQ() {
         dayScoreLabel={dayScoreText}
         streak={streak}
         bestStreak={bestStreak}
-        glance={glance}
+        smart={smart}
       />
 
       <ActivityStrip
@@ -460,33 +597,41 @@ export default async function DailyHQ() {
         completionRate={completionRate}
       />
 
-      <TodayTasks today={today} todayTasks={todayTasks} />
+      <div id="tasks" className="scroll-mt-4">
+        <TodayTasks today={today} todayTasks={todayTasks} />
+      </div>
 
       <PlanTomorrow tomorrow={tomorrow} tomorrowTasks={tomorrowTasks} />
 
-      <HealthStrip
-        today={today}
-        waterTotal={waterTotal}
-        waterTarget={waterTarget}
-        supplements={supplements}
-        sleep={sleepToday ?? null}
-        backToday={backToday}
-        lastBackPain={lastBackPain}
-      />
+      <div id="health" className="scroll-mt-4">
+        <HealthStrip
+          today={today}
+          waterTotal={waterTotal}
+          waterTarget={waterTarget}
+          supplements={supplements}
+          sleep={sleepToday ?? null}
+          backToday={backToday}
+          lastBackPain={lastBackPain}
+        />
+      </div>
 
-      <LifeStrip
-        careerActive={activeApps.length}
-        careerFollowups={careerFollowups}
-        urgentApp={urgentApp}
-        netWorth={netWorth}
-        urgentSub={urgentSub}
-        moodLogged={moodLogged}
-        mood={dailyLog?.mood ?? null}
-        energy={dailyLog?.energy ?? null}
-      />
+      <div id="life" className="scroll-mt-4">
+        <LifeStrip
+          careerActive={activeApps.length}
+          careerFollowups={careerFollowups}
+          urgentApp={urgentApp}
+          netWorth={netWorth}
+          urgentSub={urgentSub}
+          moodLogged={moodLogged}
+          mood={dailyLog?.mood ?? null}
+          energy={dailyLog?.energy ?? null}
+        />
+      </div>
 
       <WorkoutCard
         plannedType={plannedType}
+        customName={customName}
+        plannedExercises={plannedExercises}
         isRestDay={isRestDay}
         sessionExists={workoutDone}
         lastWorkout={lastWorkout}

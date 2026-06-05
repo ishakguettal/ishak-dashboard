@@ -24,6 +24,8 @@ function daysAgoText(days: number): string {
 
 export function WorkoutCard({
   plannedType,
+  customName,
+  plannedExercises,
   isRestDay,
   sessionExists,
   lastWorkout,
@@ -32,6 +34,8 @@ export function WorkoutCard({
   overloadHint,
 }: {
   plannedType: string;
+  customName?: string | null;
+  plannedExercises?: string[];
   isRestDay: boolean;
   sessionExists: boolean;
   lastWorkout: { type: string | null; daysAgo: number } | null;
@@ -40,21 +44,41 @@ export function WorkoutCard({
   overloadHint: { name: string; weight: number } | null;
 }) {
   const backRough = lastBackPain != null && lastBackPain >= 7;
+  const exercises = plannedExercises ?? [];
+  const shownExercises = exercises.slice(0, 4);
+  const moreExercises = exercises.length - shownExercises.length;
 
   return (
     <section className="rounded-2xl border border-[#1f1f1f] bg-[#141414] p-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         {/* Left */}
-        <div>
+        <div className="min-w-0">
           <p className={LABEL}>Today&apos;s workout</p>
           <div className="mt-2 flex items-center gap-2.5">
             <span className="rounded-full border border-amber-500/40 bg-amber-500/15 px-3 py-1 text-sm font-semibold text-amber-500">
-              {titleize(plannedType)}
+              {customName || titleize(plannedType)}
             </span>
             <span className="text-sm text-muted">
               {MUSCLES[plannedType] ?? "Training"}
             </span>
           </div>
+          {!isRestDay && shownExercises.length > 0 ? (
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {shownExercises.map((name) => (
+                <span
+                  key={name}
+                  className="rounded-md border border-[#2a2a2a] bg-[#1a1a1a] px-2 py-0.5 text-xs text-muted"
+                >
+                  {name}
+                </span>
+              ))}
+              {moreExercises > 0 ? (
+                <span className="rounded-md border border-[#2a2a2a] bg-[#1a1a1a] px-2 py-0.5 text-xs text-muted">
+                  +{moreExercises} more
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         {/* Right */}

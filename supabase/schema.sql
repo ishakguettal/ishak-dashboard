@@ -406,3 +406,37 @@ end; $$;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- ============================================================
+-- 2026-06 — Workout system overhaul migration
+-- (Already applied out-of-band; kept here as the source of truth.
+--  The app codes against exactly these column names.)
+-- ============================================================
+alter table public.profiles
+  add column if not exists deload_active     boolean not null default false,
+  add column if not exists deload_percentage numeric not null default 60;
+
+alter table public.workout_schedule
+  add column if not exists custom_name text;
+
+create table if not exists public.schedule_exercises (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  schedule_id uuid not null references public.workout_schedule(id) on delete cascade,
+  exercise_id uuid references public.exercises(id) on delete set null,
+  target_sets    smallint not null default 3,
+  target_rep_min smallint not null default 8,
+  target_rep_max smallint not null default 12,
+  superset_group text,                      -- exercises sharing a label are supersets
+  is_back_sensitive boolean not null default false,
+  sort_order int not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.schedule_exercises enable row level security;
+create policy "own_rows" on public.schedule_exercises for all to authenticated
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create trigger trg_schedule_exercises_updated before update on public.schedule_exercises
+  for each row execute function public.set_updated_at();
+create index on public.schedule_exercises (user_id, schedule_id, sort_order);

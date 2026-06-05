@@ -1,16 +1,27 @@
 import { addDaysISO, weekStartISO } from "@/lib/utils/date";
 
 const WEEKS = 16;
-const CELL = 10; // px
+const CELL = 14; // px — cell height (width stretches to fill)
 const GAP = 3; // px
-const DAY_COL = 12; // px — width of the left day-label column
+const DAY_COL = 14; // px — width of the left day-label column
 
 const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"]; // Mon → Sun
 const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
-const PALETTE = ["#161616", "#1e2a0f", "#2d4a18", "#4a7a28", "#6aaa38", "#F59E0B"];
+
+const LEGEND = [
+  { color: "#161616", label: "0%" },
+  { color: "#1e2a0f", label: "1–39%" },
+  { color: "#2d4a18", label: "40–59%" },
+  { color: "#4a7a28", label: "60–79%" },
+  { color: "#6aaa38", label: "80–99%" },
+  { color: "#F59E0B", label: "100%" },
+];
+
+// Shared column template: fixed day-label column, then 16 stretchy week columns.
+const GRID_COLS = `${DAY_COL}px repeat(${WEEKS}, minmax(0, 1fr))`;
 
 /** Heatmap color for a day's completion percentage. */
 function cellColor(pct: number | null): string {
@@ -62,85 +73,88 @@ export function ActivityStrip({
         padding: "14px 24px",
       }}
     >
-      <div className="flex items-start gap-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-8">
         {/* LEFT — Stats */}
         <div className="flex shrink-0 gap-6">
           <Stat value={String(completedDays)} label="Days completed" />
           <Stat value={`${completionRate}%`} label="Completion rate" green />
         </div>
 
-        {/* CENTER — Heatmap */}
-        <div className="min-w-0 flex-1 overflow-x-auto">
-          <div className="inline-block">
-            {/* Month labels */}
-            <div
-              className="flex"
-              style={{ paddingLeft: DAY_COL + GAP, gap: GAP, marginBottom: 4 }}
-            >
-              {monthLabels.map((label, i) => (
-                <div
-                  key={i}
-                  className="text-[9px] text-[#444]"
-                  style={{ width: CELL, minWidth: CELL }}
-                >
-                  <span className="whitespace-nowrap">{label}</span>
-                </div>
-              ))}
-            </div>
+        {/* RIGHT — Heatmap, stretched to fill the full width */}
+        <div className="min-w-0 flex-1">
+          {/* Month labels */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: GRID_COLS,
+              gap: GAP,
+              marginBottom: 4,
+            }}
+          >
+            <div />
+            {monthLabels.map((label, i) => (
+              <div key={i} className="overflow-visible text-[9px] text-[#444]">
+                <span className="whitespace-nowrap">{label}</span>
+              </div>
+            ))}
+          </div>
 
-            {/* Rows: Mon (top) → Sun (bottom) */}
-            <div className="flex flex-col" style={{ gap: GAP }}>
-              {DAY_LABELS.map((dl, r) => (
-                <div key={r} className="flex items-center" style={{ gap: GAP }}>
-                  <div
-                    className="text-[9px] leading-none text-[#2a2a2a]"
-                    style={{ width: DAY_COL }}
-                  >
-                    {dl}
-                  </div>
-                  {weekMondays.map((_, c) => {
-                    const date = addDaysISO(start, c * 7 + r);
-                    const future = date > today;
-                    const pct = future ? null : (map.get(date) ?? null);
-                    return (
-                      <div
-                        key={c}
-                        title={
-                          future
-                            ? date
-                            : `${date}: ${pct == null ? "no entry" : pct + "%"}`
-                        }
-                        style={{
-                          width: CELL,
-                          height: CELL,
-                          borderRadius: 2,
-                          backgroundColor: cellColor(pct),
-                        }}
-                      />
-                    );
-                  })}
+          {/* Rows: Mon (top) → Sun (bottom) */}
+          <div className="flex flex-col" style={{ gap: GAP }}>
+            {DAY_LABELS.map((dl, r) => (
+              <div
+                key={r}
+                style={{ display: "grid", gridTemplateColumns: GRID_COLS, gap: GAP }}
+              >
+                <div
+                  className="flex items-center text-[9px] text-[#2a2a2a]"
+                  style={{ height: CELL }}
+                >
+                  {dl}
                 </div>
-              ))}
-            </div>
+                {weekMondays.map((_, c) => {
+                  const date = addDaysISO(start, c * 7 + r);
+                  const future = date > today;
+                  const pct = future ? null : (map.get(date) ?? null);
+                  return (
+                    <div
+                      key={c}
+                      title={
+                        future
+                          ? date
+                          : `${date}: ${pct == null ? "no entry" : pct + "%"}`
+                      }
+                      style={{
+                        height: CELL,
+                        borderRadius: 2,
+                        backgroundColor: cellColor(pct),
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </div>
+      </div>
 
-        {/* RIGHT — Legend */}
-        <div className="flex shrink-0 items-center gap-1 self-end">
-          <span className="text-[9px] text-[#2a2a2a]">0%</span>
-          {PALETTE.map((c) => (
+      {/* Legend — bottom, one labelled swatch per range */}
+      <div className="mt-4 flex flex-wrap justify-end gap-3">
+        {LEGEND.map(({ color, label }) => (
+          <div key={color} className="flex flex-col items-center gap-1">
             <span
-              key={c}
               style={{
                 width: CELL,
                 height: CELL,
                 borderRadius: 2,
-                backgroundColor: c,
+                backgroundColor: color,
               }}
             />
-          ))}
-          <span className="text-[9px] text-[#2a2a2a]">100%</span>
-        </div>
+            <span className="text-[10px]" style={{ color: "#555" }}>
+              {label}
+            </span>
+          </div>
+        ))}
       </div>
     </section>
   );

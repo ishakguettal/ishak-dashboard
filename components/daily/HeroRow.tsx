@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Pencil, Check } from "lucide-react";
-import { formatAED } from "@/lib/utils/format";
+import { SmartPanel, type SmartData } from "./SmartPanel";
 import { updateDayWindow } from "@/app/(app)/actions";
 
 const TZ = "Asia/Dubai";
@@ -38,17 +38,6 @@ function todLabel(nowMin: number, startMin: number, endMin: number): string {
   return "Night";
 }
 
-export type Glance = {
-  tasksDone: number;
-  tasksTotal: number;
-  waterMl: number;
-  waterTargetMl: number;
-  overdueSupp: string | null;
-  backWarn: number | null;
-  careerFollowups: number;
-  subsSoonAED: number | null;
-};
-
 const LABEL = "text-[10px] font-semibold uppercase tracking-[0.12em] text-muted";
 
 export function HeroRow({
@@ -59,7 +48,7 @@ export function HeroRow({
   dayScoreLabel,
   streak,
   bestStreak,
-  glance,
+  smart,
 }: {
   dayStart: string;
   dayEnd: string;
@@ -68,7 +57,7 @@ export function HeroRow({
   dayScoreLabel: string;
   streak: number;
   bestStreak: number;
-  glance: Glance;
+  smart: SmartData;
 }) {
   const [nowMin, setNowMin] = useState<number | null>(null);
   const [clock, setClock] = useState("--:--");
@@ -236,34 +225,9 @@ export function HeroRow({
           </p>
         </div>
 
-        {/* Column 4 — Today at a glance */}
-        <div className="flex flex-1 flex-col justify-center gap-1.5 p-7">
-          <span className={LABEL}>Today at a glance</span>
-          <p className="text-sm text-text">
-            {glance.tasksDone} of {glance.tasksTotal} task
-            {glance.tasksTotal === 1 ? "" : "s"} done
-          </p>
-          <p className="text-sm text-text">
-            Water {(glance.waterMl / 1000).toFixed(1)}L of{" "}
-            {(glance.waterTargetMl / 1000).toFixed(1)}L
-          </p>
-          {glance.overdueSupp ? (
-            <p className="text-sm text-red-400">⚠ {glance.overdueSupp} overdue</p>
-          ) : null}
-          {glance.backWarn != null ? (
-            <p className="text-sm text-red-400">⚠ Back {glance.backWarn}/10 last session</p>
-          ) : null}
-          {glance.careerFollowups > 0 ? (
-            <p className="text-sm text-amber-500">
-              {glance.careerFollowups} career follow-up
-              {glance.careerFollowups === 1 ? "" : "s"} due
-            </p>
-          ) : null}
-          {glance.subsSoonAED != null && glance.subsSoonAED > 0 ? (
-            <p className="text-sm text-amber-500">
-              {formatAED(glance.subsSoonAED)} renewing soon
-            </p>
-          ) : null}
+        {/* Column 4 — Smart panel (blends into the hero, no card border) */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <SmartPanel data={smart} />
         </div>
       </div>
     </div>
