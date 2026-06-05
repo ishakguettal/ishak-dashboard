@@ -18,6 +18,8 @@ export interface Profile {
   timezone: string;
   base_currency: string;
   summer_break_until: string | null;
+  day_start_time: string;
+  day_end_time: string;
   created_at: string;
   updated_at: string;
 }

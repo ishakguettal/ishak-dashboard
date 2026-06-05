@@ -17,9 +17,16 @@ create table public.profiles (
   timezone      text not null default 'Asia/Dubai',
   base_currency text not null default 'AED',
   summer_break_until date,
+  day_start_time time not null default '08:00',
+  day_end_time   time not null default '23:30',
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
+
+-- For existing databases, run:
+--   alter table public.profiles
+--     add column if not exists day_start_time time not null default '08:00',
+--     add column if not exists day_end_time   time not null default '23:30';
 
 -- ===================== DAILY HQ / REFLECTION ======================
 create table public.daily_logs (
