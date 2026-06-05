@@ -111,11 +111,11 @@ export const ACCOUNT_TYPES = [
 ] as const;
 
 export const ACCOUNT_TYPE_COLORS: Record<string, string> = {
-  bank: "#6366f1",
+  bank: "#f59e0b",
   cash: "#34d399",
   savings: "#22d3ee",
   investment: "#fbbf24",
-  broker: "#a78bfa",
+  broker: "#f59e0b",
   other: "#9aa1b2",
 };
 

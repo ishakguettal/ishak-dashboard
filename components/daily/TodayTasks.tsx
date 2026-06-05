@@ -1,14 +1,15 @@
 "use client";
 
-import { useOptimistic, useState, useTransition } from "react";
-import { Check, ChevronRight, Trash2, PartyPopper } from "lucide-react";
+import { useEffect, useOptimistic, useState, useTransition } from "react";
+import { Check, CalendarDays, Trash2, PartyPopper } from "lucide-react";
 import { PriorityBadge } from "@/components/goals/PriorityBadge";
 import { type Priority } from "@/lib/constants";
+import { addDaysISO, weekdayOf } from "@/lib/utils/date";
 import { cn } from "@/lib/utils/cn";
 import {
   addTask,
   toggleTask,
-  pushToTomorrow,
+  pushTaskToDate,
   deleteTask,
 } from "@/app/(app)/goals/actions";
 
@@ -49,6 +50,8 @@ const sortTasks = (a: T, b: T) => {
   return RANK[a.priority] - RANK[b.priority];
 };
 
+const DOW = ["S", "M", "T", "W", "T", "F", "S"];
+
 export function TodayTasks({
   today,
   todayTasks,
@@ -59,6 +62,25 @@ export function TodayTasks({
   const [items, dispatch] = useOptimistic(todayTasks, reducer);
   const [, startTransition] = useTransition();
   const [title, setTitle] = useState("");
+  const [pickerFor, setPickerFor] = useState<string | null>(null);
+
+  // Close the date picker on outside click / Escape.
+  useEffect(() => {
+    if (!pickerFor) return;
+    function onDown(e: MouseEvent) {
+      const el = e.target as HTMLElement;
+      if (!el.closest("[data-task-picker]")) setPickerFor(null);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setPickerFor(null);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [pickerFor]);
 
   const doneCount = items.filter((t) => t.status === "done").length;
   const allDone = items.length > 0 && doneCount === items.length;
@@ -73,13 +95,15 @@ export function TodayTasks({
     });
   }
 
-  function onPush(t: T) {
+  function onMove(t: T, date: string) {
+    setPickerFor(null);
+    if (date === today) return; // already due today — nothing to do
     startTransition(async () => {
       dispatch({ kind: "remove", id: t.id });
       const fd = new FormData();
       fd.set("id", t.id);
-      fd.set("due_date", t.due_date);
-      await pushToTomorrow(fd);
+      fd.set("due_date", date);
+      await pushTaskToDate(fd);
     });
   }
 
@@ -162,14 +186,25 @@ export function TodayTasks({
                 </span>
                 <PriorityBadge priority={t.priority} />
                 {!done ? (
-                  <button
-                    type="button"
-                    onClick={() => onPush(t)}
-                    title="Push to tomorrow"
-                    className="rounded-md p-1.5 text-muted transition-colors hover:bg-[#1f1f1f] hover:text-text"
-                  >
-                    <ChevronRight className="size-4" />
-                  </button>
+                  <div className="relative" data-task-picker>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPickerFor((cur) => (cur === t.id ? null : t.id))
+                      }
+                      title="Move to date"
+                      aria-label="Move to date"
+                      className={cn(
+                        "rounded-md p-1.5 transition-colors hover:bg-[#1f1f1f] hover:text-text",
+                        pickerFor === t.id ? "text-amber-500" : "text-muted",
+                      )}
+                    >
+                      <CalendarDays className="size-4" />
+                    </button>
+                    {pickerFor === t.id ? (
+                      <DatePicker today={today} onPick={(d) => onMove(t, d)} />
+                    ) : null}
+                  </div>
                 ) : null}
                 <button
                   type="button"
@@ -205,5 +240,54 @@ export function TodayTasks({
         />
       </form>
     </section>
+  );
+}
+
+function DatePicker({
+  today,
+  onPick,
+}: {
+  today: string;
+  onPick: (date: string) => void;
+}) {
+  // Next 14 days as a 2×7 grid.
+  const days = Array.from({ length: 14 }, (_, i) => addDaysISO(today, i));
+
+  return (
+    <div className="absolute right-0 top-9 z-30 w-64 rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-3 shadow-xl">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
+        Move task to
+      </p>
+      <div className="grid grid-cols-7 gap-1">
+        {days.map((d, i) => {
+          const dom = Number(d.slice(8, 10));
+          const isToday = i === 0;
+          const isTomorrow = i === 1;
+          return (
+            <button
+              key={d}
+              type="button"
+              onClick={() => onPick(d)}
+              title={
+                isToday ? "Today" : isTomorrow ? "Tomorrow" : d
+              }
+              className={cn(
+                "flex min-h-11 flex-col items-center justify-center rounded-lg border text-xs transition-colors",
+                isToday
+                  ? "border-amber-500/60 bg-amber-500/10 text-amber-500"
+                  : "border-[#2a2a2a] bg-[#141414] text-text hover:border-amber-500 hover:bg-[#1f1f1f]",
+              )}
+            >
+              <span className="text-[9px] uppercase leading-none text-muted">
+                {DOW[weekdayOf(d)]}
+              </span>
+              <span className="mt-0.5 text-sm font-semibold leading-none tabular-nums">
+                {dom}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

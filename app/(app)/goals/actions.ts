@@ -48,6 +48,16 @@ export async function pushToTomorrow(formData: FormData) {
   refresh();
 }
 
+/** Move a task to an explicit due date (used by the Daily HQ date picker). */
+export async function pushTaskToDate(formData: FormData) {
+  const id = String(formData.get("id"));
+  const due_date = String(formData.get("due_date"));
+  if (!id || !due_date) return;
+  const supabase = await createClient();
+  await supabase.from("tasks").update({ due_date }).eq("id", id);
+  refresh();
+}
+
 export async function deleteTask(formData: FormData) {
   const id = String(formData.get("id"));
   const supabase = await createClient();

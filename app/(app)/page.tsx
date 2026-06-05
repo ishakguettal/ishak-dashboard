@@ -6,11 +6,13 @@ import { PlanTomorrow } from "@/components/daily/PlanTomorrow";
 import { HealthStrip } from "@/components/daily/HealthStrip";
 import { LifeStrip } from "@/components/daily/LifeStrip";
 import { WorkoutCard } from "@/components/daily/WorkoutCard";
+import { ActivityStrip } from "@/components/daily/ActivityStrip";
 import {
   todayISO,
   weekdayOf,
   addDaysISO,
   daysUntil,
+  weekStartISO,
   TZ,
 } from "@/lib/utils/date";
 import { computeWaterTarget } from "@/lib/utils/water";
@@ -346,6 +348,25 @@ export default async function DailyHQ() {
   const streak = currentStreak(merged, today);
   const bestStreak = longestStreak(merged);
 
+  // Activity stats over the visible 16-week window (Mon-anchored).
+  const activityMap = new Map(merged.map((l) => [l.log_date, l.completion_pct]));
+  const activityStart = addDaysISO(weekStartISO(today), -15 * 7);
+  let activityEntries = 0;
+  let completedDays = 0;
+  let activitySum = 0;
+  for (let i = 0; i < 16 * 7; i++) {
+    const d = addDaysISO(activityStart, i);
+    if (d > today) continue;
+    const pct = activityMap.get(d);
+    if (pct == null) continue;
+    activityEntries += 1;
+    activitySum += pct;
+    if (pct >= 100) completedDays += 1;
+  }
+  const completionRate = activityEntries
+    ? Math.round(activitySum / activityEntries)
+    : 0;
+
   const dayScore = projectDayScore({
     tasksTotal: todayTasks.length,
     sleepQuality: sleepToday?.quality ?? null,
@@ -430,6 +451,13 @@ export default async function DailyHQ() {
         streak={streak}
         bestStreak={bestStreak}
         glance={glance}
+      />
+
+      <ActivityStrip
+        logs={merged}
+        today={today}
+        completedDays={completedDays}
+        completionRate={completionRate}
       />
 
       <TodayTasks today={today} todayTasks={todayTasks} />
