@@ -1,36 +1,79 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Life HQ — Personal Dashboard
 
-## Getting Started
+A private, mobile-friendly, permanently-dark life dashboard: Daily HQ, Goals & Tasks,
+Workouts (with back-pain & progressive-overload tracking), Health (water / supplements /
+sleep / bodyweight), CS Career, Finance, and Reflection.
 
-First, run the development server:
+**Stack:** Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS v4 ·
+Supabase (Postgres + Auth) · Recharts · deployed on Vercel.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+---
+
+## One-time setup
+
+### 1. Create the Supabase project & schema
+1. Create a project at [supabase.com](https://supabase.com).
+2. Open **SQL Editor**, paste the contents of [`supabase/schema.sql`](supabase/schema.sql),
+   and run it. This creates every table, Row Level Security policy, triggers, indexes,
+   and a signup trigger that seeds a default Push/Pull/Legs split.
+3. **Authentication → Users → Add user**: create your single account (email + password).
+   The trigger auto-creates your profile, health profile, and weekly split.
+4. **Authentication → Sign In / Providers**: turn **off** public sign-ups so no one else
+   can register.
+
+### 2. Environment variables
+Copy `.env.local.example` to `.env.local` and fill in from **Project Settings → API**:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR-ANON-PUBLIC-KEY
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+No service-role key is used anywhere — all access is user-scoped through RLS.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 3. Run locally
+```bash
+npm install
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000) and sign in.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## Deploy to Vercel
+1. Push this repo to GitHub and import it in Vercel.
+2. Add the same two environment variables (`NEXT_PUBLIC_SUPABASE_URL`,
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY`) in **Project → Settings → Environment Variables**.
+3. Deploy. The build uses Turbopack (no extra config needed).
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## How it works
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Auth & security** — `proxy.ts` (Next 16's replacement for `middleware`) refreshes the
+  Supabase session on every request and redirects unauthenticated users to `/login`.
+  Every table is protected by RLS keyed to `auth.uid()`.
+- **Data flow** — Server Components read data with a request-scoped Supabase client
+  (`lib/supabase/server.ts`); all writes go through Server Actions (`actions.ts` per
+  section) that `revalidatePath` afterwards.
+- **Dates** — "today / this week / streak" are computed in **Asia/Dubai** (`lib/utils/date.ts`).
+- **Smart features** —
+  - Water target from weight, training load and caffeine (`lib/utils/water.ts`).
+  - Progressive-overload coach that backs off when back pain is high (`lib/utils/overload.ts`).
+  - Day completion % and streak (`lib/utils/streak.ts`).
+  - In-app reminder badges for supplements, renewals, follow-ups, overdue tasks
+    (`lib/utils/reminders.ts`).
 
-## Deploy on Vercel
+## Project structure
+```
+app/
+  (auth)/login        # login page + auth actions
+  auth/callback        # email/recovery code exchange
+  (app)/               # protected shell + 7 section pages, each with actions.ts
+components/            # ui primitives, layout, charts, per-section components
+lib/                   # supabase clients, utils, types, constants
+supabase/schema.sql    # full database schema to run once
+proxy.ts               # session refresh + route protection
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Tunables (water formula, renewal warning window, etc.) live in `lib/constants.ts`.
