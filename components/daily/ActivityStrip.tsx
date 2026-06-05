@@ -40,13 +40,12 @@ function monthOf(iso: string): number {
 export function ActivityStrip({
   logs,
   today,
-  completedDays,
-  completionRate,
 }: {
   logs: { log_date: string; completion_pct: number }[];
   today: string;
-  completedDays: number;
-  completionRate: number;
+  /** Accepted for compatibility with the page; no longer rendered. */
+  completedDays?: number;
+  completionRate?: number;
 }) {
   const map = new Map(logs.map((l) => [l.log_date, Number(l.completion_pct)]));
 
@@ -70,75 +69,67 @@ export function ActivityStrip({
         backgroundColor: "#0f0f0f",
         borderTop: "0.5px solid #1a1a1a",
         borderBottom: "0.5px solid #1a1a1a",
-        padding: "14px 24px",
+        padding: "10px 24px",
       }}
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-8">
-        {/* LEFT — Stats */}
-        <div className="flex shrink-0 gap-6">
-          <Stat value={String(completedDays)} label="Days completed" />
-          <Stat value={`${completionRate}%`} label="Completion rate" green />
+      {/* Heatmap, stretched to fill the full width */}
+      <div className="min-w-0">
+        {/* Month labels */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: GRID_COLS,
+            gap: GAP,
+            marginBottom: 4,
+          }}
+        >
+          <div />
+          {monthLabels.map((label, i) => (
+            <div key={i} className="overflow-visible text-[9px] text-[#444]">
+              <span className="whitespace-nowrap">{label}</span>
+            </div>
+          ))}
         </div>
 
-        {/* RIGHT — Heatmap, stretched to fill the full width */}
-        <div className="min-w-0 flex-1">
-          {/* Month labels */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: GRID_COLS,
-              gap: GAP,
-              marginBottom: 4,
-            }}
-          >
-            <div />
-            {monthLabels.map((label, i) => (
-              <div key={i} className="overflow-visible text-[9px] text-[#444]">
-                <span className="whitespace-nowrap">{label}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Rows: Mon (top) → Sun (bottom) */}
-          <div className="flex flex-col" style={{ gap: GAP }}>
-            {DAY_LABELS.map((dl, r) => (
+        {/* Rows: Mon (top) → Sun (bottom) */}
+        <div className="flex flex-col" style={{ gap: GAP }}>
+          {DAY_LABELS.map((dl, r) => (
+            <div
+              key={r}
+              style={{ display: "grid", gridTemplateColumns: GRID_COLS, gap: GAP }}
+            >
               <div
-                key={r}
-                style={{ display: "grid", gridTemplateColumns: GRID_COLS, gap: GAP }}
+                className="flex items-center text-[9px] text-[#2a2a2a]"
+                style={{ height: CELL }}
               >
-                <div
-                  className="flex items-center text-[9px] text-[#2a2a2a]"
-                  style={{ height: CELL }}
-                >
-                  {dl}
-                </div>
-                {weekMondays.map((_, c) => {
-                  const date = addDaysISO(start, c * 7 + r);
-                  const future = date > today;
-                  const pct = future ? null : (map.get(date) ?? null);
-                  return (
-                    <div
-                      key={c}
-                      title={
-                        future
-                          ? date
-                          : `${date}: ${pct == null ? "no entry" : pct + "%"}`
-                      }
-                      style={{
-                        height: CELL,
-                        borderRadius: 2,
-                        backgroundColor: cellColor(pct),
-                      }}
-                    />
-                  );
-                })}
+                {dl}
               </div>
-            ))}
-          </div>
+              {weekMondays.map((_, c) => {
+                const date = addDaysISO(start, c * 7 + r);
+                const future = date > today;
+                const pct = future ? null : (map.get(date) ?? null);
+                return (
+                  <div
+                    key={c}
+                    title={
+                      future
+                        ? date
+                        : `${date}: ${pct == null ? "no entry" : pct + "%"}`
+                    }
+                    style={{
+                      height: CELL,
+                      borderRadius: 2,
+                      backgroundColor: cellColor(pct),
+                    }}
+                  />
+                );
+              })}
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Legend — bottom, one labelled swatch per range */}
+      {/* Legend — bottom right, one labelled swatch per range */}
       <div className="mt-4 flex flex-wrap justify-end gap-3">
         {LEGEND.map(({ color, label }) => (
           <div key={color} className="flex flex-col items-center gap-1">
@@ -157,29 +148,5 @@ export function ActivityStrip({
         ))}
       </div>
     </section>
-  );
-}
-
-function Stat({
-  value,
-  label,
-  green,
-}: {
-  value: string;
-  label: string;
-  green?: boolean;
-}) {
-  return (
-    <div>
-      <p
-        className="text-[18px] font-medium leading-none tabular-nums"
-        style={green ? { color: "#4ade80" } : undefined}
-      >
-        {value}
-      </p>
-      <p className="mt-1.5 text-[10px] uppercase tracking-wide text-[#444]">
-        {label}
-      </p>
-    </div>
   );
 }
