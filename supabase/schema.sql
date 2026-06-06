@@ -63,6 +63,7 @@ create table public.tasks (
   due_date date not null default current_date,
   status text not null default 'todo' check (status in ('todo','done')),
   completed_at timestamptz,
+  weekly_todo boolean not null default false,   -- floats through the week; due_date = that week's Sunday (grouping/reset only)
   sort_order int not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -440,3 +441,11 @@ create policy "own_rows" on public.schedule_exercises for all to authenticated
 create trigger trg_schedule_exercises_updated before update on public.schedule_exercises
   for each row execute function public.set_updated_at();
 create index on public.schedule_exercises (user_id, schedule_id, sort_order);
+
+-- ============================================================
+-- 2026-06 — Weekly to-dos
+-- Tasks with no specific day: float through the week, due_date pinned to
+-- that week's Sunday for grouping + Monday carry-over/reset only.
+-- ============================================================
+alter table public.tasks
+  add column if not exists weekly_todo boolean not null default false;

@@ -39,6 +39,11 @@ export function weekStartISO(iso: string = todayISO()): string {
   return addDaysISO(iso, -diff);
 }
 
+/** Sunday that ends the week containing `iso` (Monday-anchored weeks). */
+export function weekEndISO(iso: string = todayISO()): string {
+  return addDaysISO(weekStartISO(iso), 6);
+}
+
 /** Whole days from `from` until `target` (negative = in the past). */
 export function daysUntil(target: string, from: string = todayISO()): number {
   return Math.round((utcOf(target) - utcOf(from)) / 86_400_000);

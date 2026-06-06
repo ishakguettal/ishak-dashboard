@@ -49,6 +49,7 @@ export interface Task extends BaseRow {
   due_date: string;
   status: "todo" | "done";
   completed_at: string | null;
+  weekly_todo: boolean;
   sort_order: number;
 }
 

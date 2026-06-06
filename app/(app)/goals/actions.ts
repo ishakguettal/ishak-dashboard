@@ -2,7 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { todayISO, addDaysISO, weekStartISO } from "@/lib/utils/date";
+import {
+  todayISO,
+  addDaysISO,
+  weekStartISO,
+  weekEndISO,
+} from "@/lib/utils/date";
 
 function refresh() {
   revalidatePath("/goals");
@@ -20,6 +25,76 @@ export async function addTask(formData: FormData) {
     due_date: String(formData.get("due_date") || todayISO()),
     notes: String(formData.get("notes") ?? "") || null,
   });
+  refresh();
+}
+
+/** A weekly to-do: no specific day, just "before Sunday". Pinned to this
+ *  week's Sunday so grouping + Monday carry-over have something to key off. */
+export async function addWeeklyTodo(formData: FormData) {
+  const title = String(formData.get("title") ?? "").trim();
+  if (!title) return;
+  const supabase = await createClient();
+  await supabase.from("tasks").insert({
+    title,
+    priority: String(formData.get("priority") ?? "medium"),
+    due_date: weekEndISO(),
+    weekly_todo: true,
+  });
+  refresh();
+}
+
+/** Edit a task from the slide-in panel. Only touches due_date when one is
+ *  supplied (the panel hides the date field for weekly to-dos). */
+export async function updateTask(formData: FormData) {
+  const id = String(formData.get("id"));
+  if (!id) return;
+  const title = String(formData.get("title") ?? "").trim();
+  if (!title) return;
+  const due = String(formData.get("due_date") ?? "");
+  const update: Record<string, unknown> = {
+    title,
+    priority: String(formData.get("priority") ?? "medium"),
+    notes: String(formData.get("notes") ?? "") || null,
+  };
+  if (due) update.due_date = due;
+  const supabase = await createClient();
+  await supabase.from("tasks").update(update).eq("id", id);
+  refresh();
+}
+
+/** Inline priority cycle on a task row. */
+export async function setTaskPriority(formData: FormData) {
+  const id = String(formData.get("id"));
+  const priority = String(formData.get("priority") ?? "medium");
+  const supabase = await createClient();
+  await supabase.from("tasks").update({ priority }).eq("id", id);
+  refresh();
+}
+
+/** Monday carry-over: keep last week's unfinished weekly to-dos by pulling
+ *  them into the current week. */
+export async function carryOverWeeklyTodos() {
+  const supabase = await createClient();
+  const sunday = weekEndISO();
+  await supabase
+    .from("tasks")
+    .update({ due_date: sunday })
+    .eq("weekly_todo", true)
+    .eq("status", "todo")
+    .lt("due_date", sunday);
+  refresh();
+}
+
+/** Monday carry-over: drop last week's unfinished weekly to-dos. */
+export async function dropWeeklyTodos() {
+  const supabase = await createClient();
+  const sunday = weekEndISO();
+  await supabase
+    .from("tasks")
+    .delete()
+    .eq("weekly_todo", true)
+    .eq("status", "todo")
+    .lt("due_date", sunday);
   refresh();
 }
 
@@ -69,13 +144,49 @@ export async function deleteTask(formData: FormData) {
 export async function addSummerGoal(formData: FormData) {
   const title = String(formData.get("title") ?? "").trim();
   if (!title) return;
+  const progress = Math.max(
+    0,
+    Math.min(100, Math.round(Number(formData.get("progress") ?? 0))),
+  );
   const supabase = await createClient();
   await supabase.from("summer_goals").insert({
     title,
     description: String(formData.get("description") ?? "") || null,
     category: String(formData.get("category") ?? "") || null,
     target_date: String(formData.get("target_date") || "") || null,
+    progress,
+    status: progress >= 100 ? "done" : "active",
   });
+  refresh();
+}
+
+/** Full edit from the slide-in panel: title, category, target date, progress,
+ *  status and notes. */
+export async function updateSummerGoal(formData: FormData) {
+  const id = String(formData.get("id"));
+  if (!id) return;
+  const title = String(formData.get("title") ?? "").trim();
+  if (!title) return;
+  const progress = Math.max(
+    0,
+    Math.min(100, Math.round(Number(formData.get("progress") ?? 0))),
+  );
+  const statusRaw = String(formData.get("status") ?? "active");
+  const status = ["active", "done", "dropped"].includes(statusRaw)
+    ? statusRaw
+    : "active";
+  const supabase = await createClient();
+  await supabase
+    .from("summer_goals")
+    .update({
+      title,
+      category: String(formData.get("category") ?? "") || null,
+      target_date: String(formData.get("target_date") || "") || null,
+      description: String(formData.get("notes") ?? "") || null,
+      progress,
+      status,
+    })
+    .eq("id", id);
   refresh();
 }
 
