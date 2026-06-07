@@ -3,6 +3,7 @@
 import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { Check, CalendarDays, Trash2, PartyPopper } from "lucide-react";
 import { PriorityBadge } from "@/components/goals/PriorityBadge";
+import { PriorityToggle } from "@/components/goals/PriorityToggle";
 import { type Priority } from "@/lib/constants";
 import { addDaysISO, weekdayOf } from "@/lib/utils/date";
 import { cn } from "@/lib/utils/cn";
@@ -62,6 +63,7 @@ export function TodayTasks({
   const [items, dispatch] = useOptimistic(todayTasks, reducer);
   const [, startTransition] = useTransition();
   const [title, setTitle] = useState("");
+  const [priority, setPriority] = useState<Priority>("medium");
   const [pickerFor, setPickerFor] = useState<string | null>(null);
 
   // Close the date picker on outside click / Escape.
@@ -121,10 +123,11 @@ export function TodayTasks({
     const tt = title.trim();
     if (!tt) return;
     setTitle("");
+    setPriority("medium");
     const temp: T = {
       id: "temp-" + Date.now(),
       title: tt,
-      priority: "medium",
+      priority,
       status: "todo",
       due_date: today,
     };
@@ -132,7 +135,7 @@ export function TodayTasks({
       dispatch({ kind: "add", task: temp });
       const fd = new FormData();
       fd.set("title", tt);
-      fd.set("priority", "medium");
+      fd.set("priority", priority);
       fd.set("due_date", today);
       await addTask(fd);
     });
@@ -236,8 +239,9 @@ export function TodayTasks({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Add a task…"
-          className="flex-1 bg-transparent text-sm placeholder:text-muted/60 focus:outline-none"
+          className="min-w-0 flex-1 bg-transparent text-sm placeholder:text-muted/60 focus:outline-none"
         />
+        <PriorityToggle value={priority} onChange={setPriority} />
       </form>
     </section>
   );

@@ -143,6 +143,11 @@ export const WATER = {
   perCaffeine100mg: 120, // ml to offset each 100mg of caffeine
   min: 2000,
   max: 5000,
+  // Dynamic Daily-HQ target (workout vs rest day) — see dynamicWaterTarget().
+  perKgDynamic: 35, // ml per kg bodyweight
+  dubaiHeatBonusMl: 400, // always added for the Dubai climate
+  workoutBonusMl: 500, // extra on training days
+  noScheduleDefaultMl: 2800, // fallback when no schedule is set
 } as const;
 
 export const QUICK_WATER_AMOUNTS = [250, 500, 750];

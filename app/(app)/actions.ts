@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { todayISO } from "@/lib/utils/date";
+import { WORKOUT_TYPES } from "@/lib/constants";
 
 /**
  * Persists today's overall completion into daily_logs so the streak has
@@ -18,6 +19,29 @@ export async function syncDailyCompletion(logDate: string, pct: number) {
   await supabase.from("daily_logs").upsert(
     { user_id: user.id, log_date: logDate, completion_pct: pct },
     { onConflict: "user_id,log_date" },
+  );
+}
+
+/**
+ * Persists today's computed day score into daily_scores so the streak and best
+ * run have history. Idempotent upsert keyed on (user_id, date). Fired from the
+ * Daily HQ on load — today's row matters for tomorrow's streak.
+ */
+export async function syncDailyScore(date: string, score: number) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+
+  await supabase.from("daily_scores").upsert(
+    {
+      user_id: user.id,
+      date,
+      score: Math.round(score),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,date" },
   );
 }
 
@@ -77,4 +101,24 @@ export async function logBackPain(formData: FormData) {
   }
   revalidatePath("/");
   revalidatePath("/workouts");
+}
+
+/**
+ * Overrides today's workout type regardless of the weekly schedule. Date-scoped
+ * (Asia/Dubai) and idempotent — upsert keyed on (user_id, date).
+ */
+export async function setWorkoutOverride(type: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+
+  if (!(WORKOUT_TYPES as readonly string[]).includes(type)) return;
+
+  await supabase.from("workout_overrides").upsert(
+    { user_id: user.id, date: todayISO(), workout_type: type },
+    { onConflict: "user_id,date" },
+  );
+  revalidatePath("/");
 }

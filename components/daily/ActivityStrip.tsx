@@ -1,6 +1,6 @@
-import { addDaysISO, weekStartISO } from "@/lib/utils/date";
+import { addDaysISO, weekStartISO, daysUntil } from "@/lib/utils/date";
 
-const WEEKS = 16;
+const MAX_WEEKS = 16;
 const CELL = 14; // px — cell height (width stretches to fill)
 const GAP = 3; // px
 const DAY_COL = 14; // px — width of the left day-label column
@@ -20,9 +20,6 @@ const LEGEND = [
   { color: "#F59E0B", label: "100%" },
 ];
 
-// Shared column template: fixed day-label column, then 16 stretchy week columns.
-const GRID_COLS = `${DAY_COL}px repeat(${WEEKS}, minmax(0, 1fr))`;
-
 /** Heatmap color for a day's completion percentage. */
 function cellColor(pct: number | null): string {
   if (pct == null || pct <= 0) return "#161616";
@@ -40,18 +37,28 @@ function monthOf(iso: string): number {
 export function ActivityStrip({
   logs,
   today,
+  accountCreated,
 }: {
   logs: { log_date: string; completion_pct: number }[];
   today: string;
+  /** First day the account existed (Dubai date) — the grid never runs earlier. */
+  accountCreated: string;
   /** Accepted for compatibility with the page; no longer rendered. */
   completedDays?: number;
   completionRate?: number;
 }) {
   const map = new Map(logs.map((l) => [l.log_date, Number(l.completion_pct)]));
 
-  // Grid runs from the Monday 15 weeks ago through the current week (Mon–Sun).
+  // Grid spans from the account's first week through the current week, but never
+  // more than MAX_WEEKS — so it never shows columns from before the account
+  // existed.
   const thisMonday = weekStartISO(today);
+  const accountMonday = weekStartISO(accountCreated);
+  const weeksSinceAccount =
+    Math.floor(daysUntil(thisMonday, accountMonday) / 7) + 1;
+  const WEEKS = Math.min(MAX_WEEKS, Math.max(1, weeksSinceAccount));
   const start = addDaysISO(thisMonday, -(WEEKS - 1) * 7);
+  const GRID_COLS = `${DAY_COL}px repeat(${WEEKS}, minmax(0, 1fr))`;
   const weekMondays = Array.from({ length: WEEKS }, (_, c) =>
     addDaysISO(start, c * 7),
   );
@@ -106,20 +113,22 @@ export function ActivityStrip({
               </div>
               {weekMondays.map((_, c) => {
                 const date = addDaysISO(start, c * 7 + r);
-                const future = date > today;
-                const pct = future ? null : (map.get(date) ?? null);
+                // Only days the account has actually lived through render; days
+                // before sign-up and days in the future are left blank.
+                const inRange = date >= accountCreated && date <= today;
+                const pct = inRange ? (map.get(date) ?? null) : null;
                 return (
                   <div
                     key={c}
                     title={
-                      future
-                        ? date
-                        : `${date}: ${pct == null ? "no entry" : pct + "%"}`
+                      inRange
+                        ? `${date}: ${pct == null ? "no entry" : pct + "%"}`
+                        : undefined
                     }
                     style={{
                       height: CELL,
                       borderRadius: 2,
-                      backgroundColor: cellColor(pct),
+                      backgroundColor: inRange ? cellColor(pct) : "transparent",
                     }}
                   />
                 );

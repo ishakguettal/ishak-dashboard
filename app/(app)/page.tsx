@@ -16,16 +16,21 @@ import {
   weekStartISO,
   TZ,
 } from "@/lib/utils/date";
-import { computeWaterTarget } from "@/lib/utils/water";
+import { dynamicWaterTarget } from "@/lib/utils/water";
 import {
-  currentStreak,
-  longestStreak,
+  scoreStreak,
+  bestScoreStreak,
   dayCompletion,
   type DayTally,
 } from "@/lib/utils/streak";
-import { projectDayScore, dayScoreLabel } from "@/lib/utils/dayscore";
+import {
+  computeScoreBreakdown,
+  computeDayScore,
+  dayStatusLine,
+} from "@/lib/utils/dayscore";
 import { suggestOverload } from "@/lib/utils/overload";
 import { RENEWAL_WARNING_DAYS } from "@/lib/constants";
+import { setWorkoutOverride } from "./actions";
 import type { Task } from "@/lib/types/db";
 
 export const dynamic = "force-dynamic";
@@ -85,17 +90,21 @@ export default async function DailyHQ() {
     sleep7Res,
     bodyWeightsRes,
     schedExRes,
+    dailyScoresRes,
+    overrideRes,
   ] = await Promise.all([
     supabase.from("profiles").select("*").maybeSingle(),
     supabase.from("health_profile").select("*").maybeSingle(),
     supabase
       .from("tasks")
       .select("id,title,priority,status,due_date")
-      .eq("due_date", today),
+      .eq("due_date", today)
+      .eq("weekly_todo", false),
     supabase
       .from("tasks")
       .select("id,title,priority,status,due_date")
-      .eq("due_date", tomorrow),
+      .eq("due_date", tomorrow)
+      .eq("weekly_todo", false),
     supabase.from("water_logs").select("amount_ml").eq("log_date", today),
     supabase
       .from("supplements")
@@ -113,7 +122,7 @@ export default async function DailyHQ() {
       .maybeSingle(),
     supabase
       .from("workout_sessions")
-      .select("id,back_pain,completed")
+      .select("id,back_pain,completed,duration_min")
       .eq("session_date", today)
       .maybeSingle(),
     supabase
@@ -159,6 +168,7 @@ export default async function DailyHQ() {
       .select("title")
       .lt("due_date", today)
       .eq("status", "todo")
+      .eq("weekly_todo", false)
       .order("due_date")
       .limit(20),
     supabase
@@ -175,14 +185,27 @@ export default async function DailyHQ() {
       .from("schedule_exercises")
       .select("schedule_id,sort_order,exercises(name)")
       .order("sort_order"),
+    supabase
+      .from("daily_scores")
+      .select("date,score")
+      .order("date", { ascending: false })
+      .limit(400),
+    supabase
+      .from("workout_overrides")
+      .select("workout_type")
+      .eq("date", today)
+      .maybeSingle(),
   ]);
 
   const profile = profileRes.data ?? {};
   const dayStart: string = profile.day_start_time ?? "08:00";
   const dayEnd: string = profile.day_end_time ?? "23:30";
+  // First day the account existed (in Dubai time) — bounds the activity heatmap.
+  const accountCreated = profile.created_at
+    ? todayISO(new Date(profile.created_at))
+    : today;
 
   const health = healthRes.data ?? {};
-  const waterTarget = computeWaterTarget(health);
   const waterTotal = (waterRes.data ?? []).reduce(
     (s, w: { amount_ml: number }) => s + w.amount_ml,
     0,
@@ -234,11 +257,23 @@ export default async function DailyHQ() {
 
   // ---- Workout ----
   const schedule = scheduleRes.data;
-  const plannedType = schedule?.workout_type ?? "rest";
-  const customName: string | null = schedule?.custom_name ?? null;
+  // A manual override for today (if any) wins over the weekly schedule.
+  const override = overrideRes.data as { workout_type: string } | null;
+  const scheduledType = schedule?.workout_type ?? "rest";
+  const plannedType = override?.workout_type ?? scheduledType;
+  // When overridden, the schedule's custom name / planned exercises no longer
+  // apply — show the override's base type cleanly.
+  const customName: string | null = override ? null : schedule?.custom_name ?? null;
   const scheduleId: string | null = schedule?.id ?? null;
   const isRestDay = plannedType === "rest";
   const isTrainingDay = !isRestDay;
+  const hasSchedule = schedule != null;
+
+  // Water target is dynamic: heavier on training days (see dynamicWaterTarget).
+  const waterTarget = dynamicWaterTarget(health, {
+    isWorkoutDay: isTrainingDay,
+    hasSchedule,
+  });
 
   // Today's planned exercises (names), for the workout card chips.
   const schedExAll = (schedExRes.data ?? []) as unknown as {
@@ -246,16 +281,22 @@ export default async function DailyHQ() {
     sort_order: number;
     exercises: { name: string } | null;
   }[];
-  const plannedExercises = scheduleId
-    ? schedExAll
-        .filter((r) => r.schedule_id === scheduleId)
-        .sort((a, b) => a.sort_order - b.sort_order)
-        .map((r) => r.exercises?.name)
-        .filter((n): n is string => !!n)
-    : [];
+  const plannedExercises =
+    scheduleId && !override
+      ? schedExAll
+          .filter((r) => r.schedule_id === scheduleId)
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .map((r) => r.exercises?.name)
+          .filter((n): n is string => !!n)
+      : [];
 
   const sessionToday = sessionTodayRes.data as
-    | { id: string; back_pain: number | null; completed: boolean }
+    | {
+        id: string;
+        back_pain: number | null;
+        completed: boolean;
+        duration_min: number | null;
+      }
     | null;
   const backToday = sessionToday?.back_pain ?? null;
 
@@ -291,6 +332,13 @@ export default async function DailyHQ() {
   const workoutDone =
     sessionToday != null &&
     (sessionToday.completed === true || datesWithSets.has(today));
+
+  // Today's working-set volume (kg) for the workout card (warm-ups excluded).
+  const todayVolume = Math.round(
+    setRows
+      .filter((r) => !r.is_warmup && r.workout_sessions?.session_date === today)
+      .reduce((s, r) => s + (Number(r.reps) || 0) * (Number(r.weight) || 0), 0),
+  );
 
   // Consecutive training days ending today.
   const trainingSessions = allSessions.filter(isTrainingSession);
@@ -395,8 +443,6 @@ export default async function DailyHQ() {
     { log_date: today, completion_pct: completion },
     ...logs.filter((l) => l.log_date !== today),
   ];
-  const streak = currentStreak(merged, today);
-  const bestStreak = longestStreak(merged);
 
   // Activity stats over the visible 16-week window (Mon-anchored).
   const activityMap = new Map(merged.map((l) => [l.log_date, l.completion_pct]));
@@ -417,14 +463,55 @@ export default async function DailyHQ() {
     ? Math.round(activitySum / activityEntries)
     : 0;
 
-  const dayScore = projectDayScore({
+  // Most recent sleep (today's if logged, else the latest night) for the score.
+  const recentSleep =
+    ((sleep7Res.data ?? []) as { hours: number | null; quality: number | null }[])[0] ??
+    null;
+  const afterSix = nowMin >= 18 * 60; // Dubai — training window has closed
+  const suppsTaken = takenSuppNames.length;
+
+  const scoreInputs = {
+    tasksCompleted: tasksDone,
     tasksTotal: todayTasks.length,
-    sleepQuality: sleepToday?.quality ?? null,
+    sleepHours: recentSleep?.hours ?? null,
+    sleepQuality: recentSleep?.quality ?? null,
+    hasSleepLog: recentSleep != null,
     isRestDay,
-    sessionExists: workoutDone,
-    activeSupplements: supplements.length,
+    hasSchedule,
+    workoutDone,
+    afterSix,
+    waterMl: waterTotal,
+    waterTarget,
+    suppsTaken,
+    suppsTotal: supplements.length,
+  };
+  const scoreBreakdown = computeScoreBreakdown(scoreInputs);
+  const dayScore = computeDayScore(scoreInputs);
+  const statusLine = dayStatusLine({
+    tasksCompleted: tasksDone,
+    tasksTotal: todayTasks.length,
+    waterMl: waterTotal,
+    waterTarget,
+    isRestDay,
+    hasSchedule,
+    workoutDone,
+    workoutType: plannedType,
+    sleepHours: recentSleep?.hours ?? null,
+    hasSleepLog: recentSleep != null,
+    suppsTaken,
+    suppsTotal: supplements.length,
   });
-  const dayScoreText = dayScoreLabel(dayScore, isRestDay);
+
+  // Streak from persisted daily scores (≥70 = a good day). Today's score is
+  // folded in for the best-run only; the current streak counts up to yesterday.
+  const scoreRows = [
+    { date: today, score: dayScore },
+    ...((dailyScoresRes.data ?? []) as { date: string; score: number }[]).filter(
+      (s) => s.date !== today,
+    ),
+  ];
+  const streak = scoreStreak(scoreRows, today);
+  const bestStreak = bestScoreStreak(scoreRows);
 
   // ---- Career ----
   const apps = (appsRes.data ?? []) as {
@@ -573,18 +660,35 @@ export default async function DailyHQ() {
     body_weight: { last_kg: lastKg, trend_7day: weightTrend7 },
     streak: { current: streak, at_risk: streakAtRisk },
     time_of_day: timeOfDay,
+    coach: {
+      scoreBreakdown,
+      sleepH: recentSleep?.hours ?? 0,
+      sleepQuality: recentSleep?.quality ?? 0,
+      waterMl: waterTotal,
+      waterTarget,
+      tasksComplete: tasksDone,
+      tasksTotal: todayTasks.length,
+      workoutStatus: !hasSchedule
+        ? "unknown"
+        : isRestDay
+          ? "rest"
+          : workoutDone
+            ? "done"
+            : "pending",
+      lastWorkoutDaysAgo: lastWorkout ? lastWorkout.daysAgo : null,
+    },
   };
 
   return (
     <div className="space-y-4">
-      <DailySync logDate={today} pct={completion} />
+      <DailySync logDate={today} pct={completion} score={dayScore} />
 
       <HeroRow
         dayStart={dayStart}
         dayEnd={dayEnd}
-        completion={completion}
         dayScore={dayScore}
-        dayScoreLabel={dayScoreText}
+        scoreBreakdown={scoreBreakdown}
+        statusLine={statusLine}
         streak={streak}
         bestStreak={bestStreak}
         smart={smart}
@@ -593,6 +697,7 @@ export default async function DailyHQ() {
       <ActivityStrip
         logs={merged}
         today={today}
+        accountCreated={accountCreated}
         completedDays={completedDays}
         completionRate={completionRate}
       />
@@ -638,6 +743,9 @@ export default async function DailyHQ() {
         consecutiveDays={consecutiveDays}
         lastBackPain={lastBackPain}
         overloadHint={overloadHint}
+        duration={sessionToday?.duration_min ?? null}
+        volume={workoutDone ? todayVolume : null}
+        onOverride={setWorkoutOverride}
       />
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useOptimistic, useState, useTransition } from "react";
+import { CalendarCheck } from "lucide-react";
 import { PRIORITIES, type Priority } from "@/lib/constants";
 import {
   TaskRow,
@@ -18,9 +19,6 @@ import {
   carryOverWeeklyTodos,
   dropWeeklyTodos,
 } from "@/app/(app)/goals/actions";
-
-const LABEL =
-  "text-[10px] font-semibold uppercase tracking-[0.14em] text-[#444]";
 
 type Act =
   | { kind: "toggle"; id: string }
@@ -165,10 +163,14 @@ export function WeeklyTodos({
   }
 
   return (
-    <div>
-      <p className={`${LABEL} mb-1.5`}>This week</p>
-
-      <WeeklyAddForm onAdd={onAdd} />
+    <section className="rounded-2xl border border-[#1f1f1f] bg-[#141414] p-5">
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <CalendarCheck className="size-4 text-muted" />
+          <h2 className="text-sm font-semibold text-text">This Week</h2>
+        </div>
+        <WeeklyAddForm onAdd={onAdd} />
+      </div>
 
       {stale.length > 0 ? (
         <div className="mt-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
@@ -215,7 +217,7 @@ export function WeeklyTodos({
           ))}
         </ul>
       ) : (
-        <p className="px-1 py-3 text-sm text-muted">No weekly tasks yet.</p>
+        <p className="px-1 py-3 text-sm text-muted">No weekly to-dos this week</p>
       )}
 
       <TaskEditPanel
@@ -226,7 +228,7 @@ export function WeeklyTodos({
         onSave={onSaveEdit}
         onDelete={onDelete}
       />
-    </div>
+    </section>
   );
 }
 
@@ -241,7 +243,7 @@ function WeeklyAddForm({ onAdd }: { onAdd: (title: string) => void }) {
         setTitle("");
         onAdd(tt);
       }}
-      className="flex items-center gap-2"
+      className="flex w-full items-center gap-2 sm:w-80"
     >
       <input
         value={title}

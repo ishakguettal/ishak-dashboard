@@ -449,3 +449,52 @@ create index on public.schedule_exercises (user_id, schedule_id, sort_order);
 -- ============================================================
 alter table public.tasks
   add column if not exists weekly_todo boolean not null default false;
+
+-- ============================================================
+-- 2026-06 — Daily scores (Daily HQ streak history)
+-- One real, weighted day score (0–100) per calendar day. A "good day" is
+-- score >= 70; the streak counts consecutive good days, best run = longest ever.
+-- The Daily HQ upserts today's score on every load (server-side).
+-- ============================================================
+create table if not exists public.daily_scores (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  date date not null,
+  score integer not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, date)
+);
+
+alter table public.daily_scores enable row level security;
+create policy "Users manage own scores" on public.daily_scores
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create trigger trg_daily_scores_updated before update on public.daily_scores
+  for each row execute function public.set_updated_at();
+create index on public.daily_scores (user_id, date desc);
+
+-- ------------------------------------------------------------
+-- 2026-06 — Data fix: Magnesium Glycinate is a before-bed supplement.
+-- One-off; run once in the SQL editor.
+-- ------------------------------------------------------------
+-- update public.supplements
+--   set reminder_time = '21:00', timing = 'before_bed', notes = 'Take before bed'
+--   where name ilike '%magnesium%'
+--     and user_id = (select id from auth.users limit 1);
+
+-- ============================================================
+-- 2026-06 — Workout day override
+-- Lets the Daily HQ override today's workout type regardless of the weekly
+-- schedule. Date-scoped (one row per user per day).
+-- ============================================================
+create table if not exists public.workout_overrides (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users not null,
+  date date not null,
+  workout_type text not null,
+  created_at timestamptz default now(),
+  unique (user_id, date)
+);
+alter table public.workout_overrides enable row level security;
+create policy "Users manage own overrides" on public.workout_overrides
+  for all using (auth.uid() = user_id);

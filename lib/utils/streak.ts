@@ -60,3 +60,45 @@ export function longestStreak(
   }
   return best;
 }
+
+/** A calendar day counts toward the streak when its score reaches this. */
+export const GOOD_DAY_SCORE = 70;
+
+/**
+ * Consecutive calendar days **ending yesterday** with score ≥ 70. Today is
+ * deliberately excluded — the day isn't over, so it can't break or extend the
+ * run yet.
+ */
+export function scoreStreak(
+  scores: { date: string; score: number | string }[],
+  today: string = todayISO(),
+): number {
+  const map = new Map(scores.map((s) => [s.date, Number(s.score)]));
+  let cursor = addDaysISO(today, -1); // start counting at yesterday
+  let streak = 0;
+  while ((map.get(cursor) ?? 0) >= GOOD_DAY_SCORE) {
+    streak += 1;
+    cursor = addDaysISO(cursor, -1);
+  }
+  return streak;
+}
+
+/** Longest run of consecutive calendar days with score ≥ 70, ever. */
+export function bestScoreStreak(
+  scores: { date: string; score: number | string }[],
+): number {
+  const days = scores
+    .filter((s) => Number(s.score) >= GOOD_DAY_SCORE)
+    .map((s) => s.date)
+    .sort();
+
+  let best = 0;
+  let run = 0;
+  let prev: string | null = null;
+  for (const d of days) {
+    run = prev && addDaysISO(prev, 1) === d ? run + 1 : 1;
+    if (run > best) best = run;
+    prev = d;
+  }
+  return best;
+}

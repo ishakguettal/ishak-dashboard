@@ -31,3 +31,28 @@ export function computeWaterTarget(p: WaterInputs): number {
   const clamped = Math.min(WATER.max, Math.max(WATER.min, raw));
   return Math.round(clamped / 50) * 50;
 }
+
+/**
+ * Dynamic Daily-HQ water target (ml), heavier on training days:
+ *   base     = weight_kg * 35
+ *   + Dubai heat bonus (always)
+ *   + caffeine offset (caffeine_mg / 10)
+ *   + workout bonus on training days
+ * No schedule for today → a flat sensible default. A manual override wins.
+ */
+export function dynamicWaterTarget(
+  p: WaterInputs,
+  opts: { isWorkoutDay: boolean; hasSchedule: boolean },
+): number {
+  if (p.water_target_override_ml && p.water_target_override_ml > 0) {
+    return p.water_target_override_ml;
+  }
+  if (!opts.hasSchedule) return WATER.noScheduleDefaultMl;
+
+  const base = (p.weight_kg ?? 70) * WATER.perKgDynamic;
+  const caffeineOffset = (p.caffeine_mg ?? 0) / 10;
+  const workoutBonus = opts.isWorkoutDay ? WATER.workoutBonusMl : 0;
+
+  const raw = base + WATER.dubaiHeatBonusMl + caffeineOffset + workoutBonus;
+  return Math.round(raw / 50) * 50;
+}

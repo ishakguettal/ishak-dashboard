@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Pencil, Check } from "lucide-react";
 import { SmartPanel, type SmartData } from "./SmartPanel";
+import { ScoreBreakdownPanel } from "./ScoreBreakdownPanel";
+import { type ScoreBreakdown } from "@/lib/utils/dayscore";
 import { updateDayWindow } from "@/app/(app)/actions";
 
 const TZ = "Asia/Dubai";
@@ -28,33 +30,25 @@ function dubaiNow(): { min: number; clock: string } {
   return { min, clock };
 }
 
-function todLabel(nowMin: number, startMin: number, endMin: number): string {
-  if (nowMin < startMin) return "Early start";
-  if (nowMin >= endMin) return "Night";
-  const f = (nowMin - startMin) / (endMin - startMin);
-  if (f < 0.33) return "Good morning";
-  if (f < 0.66) return "Midday — keep moving";
-  if (f < 0.9) return "Evening wind-down";
-  return "Night";
-}
-
 const LABEL = "text-[10px] font-semibold uppercase tracking-[0.12em] text-muted";
 
 export function HeroRow({
   dayStart,
   dayEnd,
-  completion,
   dayScore,
-  dayScoreLabel,
+  scoreBreakdown,
+  statusLine,
   streak,
   bestStreak,
   smart,
 }: {
   dayStart: string;
   dayEnd: string;
-  completion: number;
   dayScore: number;
-  dayScoreLabel: string;
+  /** Per-component contributions to the score, shown in column 2. */
+  scoreBreakdown: ScoreBreakdown;
+  /** Short, neutral facts about the day so far (shown inside the ring). */
+  statusLine: string;
   streak: number;
   bestStreak: number;
   smart: SmartData;
@@ -76,16 +70,9 @@ export function HeroRow({
 
   const startMin = toMin(dayStart);
   const endMin = Math.max(startMin + 1, toMin(dayEnd));
-  const timePct =
-    nowMin == null
-      ? 0
-      : Math.min(100, Math.max(0, ((nowMin - startMin) / (endMin - startMin)) * 100));
 
-  // Ring blends elapsed time and day completion 50/50.
-  const ring = Math.round(0.5 * timePct + 0.5 * completion);
-  const done = completion >= 100;
-  const accent = done ? "#4ade80" : "#f59e0b";
-  const label = nowMin == null ? "" : todLabel(nowMin, startMin, endMin);
+  // Ring now reflects the real day score; green once it clears a "good day".
+  const accent = dayScore >= 70 ? "#4ade80" : "#f59e0b";
 
   // Time remaining in the day.
   const remaining = nowMin == null ? 0 : Math.max(0, Math.round(endMin - nowMin));
@@ -103,7 +90,7 @@ export function HeroRow({
   const stroke = 12;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
-  const offset = c - (ring / 100) * c;
+  const offset = c - (dayScore / 100) * c;
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-[#1f1f1f] bg-[#141414]">
@@ -155,6 +142,9 @@ export function HeroRow({
       <div className="flex flex-col divide-y divide-[#1f1f1f] sm:flex-row sm:divide-x sm:divide-y-0">
         {/* Column 1 — Progress ring */}
         <div className="flex flex-col items-center justify-center gap-3 p-7 sm:min-w-[200px]">
+          <p className="line-clamp-2 max-w-[200px] text-center text-xs text-zinc-400">
+            {statusLine}
+          </p>
           <div className="relative" style={{ width: size, height: size }}>
             <svg width={size} height={size} className="-rotate-90">
               <circle
@@ -180,14 +170,10 @@ export function HeroRow({
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <span
-                className="px-2 text-center text-[10px] font-semibold uppercase leading-tight tracking-[0.1em]"
+                className="text-4xl font-bold leading-none tabular-nums"
                 style={{ color: accent }}
               >
-                {label}
-              </span>
-              <span className="mt-1 text-3xl font-bold leading-none tabular-nums">
-                {ring}
-                <span className="text-lg">%</span>
+                {dayScore}
               </span>
               <span className="mt-1 font-mono text-xs text-muted">{clock}</span>
             </div>
@@ -195,20 +181,10 @@ export function HeroRow({
           <p className="text-center text-xs text-muted">{remText}</p>
         </div>
 
-        {/* Column 2 — Day score */}
-        <div className="flex flex-col justify-center gap-2 p-7 sm:min-w-[180px]">
-          <span className={LABEL}>Day score</span>
-          <p className="text-[26px] font-bold leading-none tabular-nums text-amber-500">
-            {dayScore}
-            <span className="text-base">%</span>
-          </p>
-          <p className="text-sm text-text">{dayScoreLabel}</p>
-          <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-[#1f1f1f]">
-            <div
-              className="h-full rounded-full bg-amber-500 transition-all duration-500"
-              style={{ width: `${dayScore}%` }}
-            />
-          </div>
+        {/* Column 2 — Score breakdown */}
+        <div className="flex flex-col justify-center gap-2.5 p-7 sm:min-w-[240px]">
+          <span className={LABEL}>Score breakdown</span>
+          <ScoreBreakdownPanel data={scoreBreakdown} />
         </div>
 
         {/* Column 3 — Streak */}

@@ -80,13 +80,9 @@ export default async function GoalsPage() {
         </p>
       </div>
 
-      <TaskBoard
-        initialTasks={dayTasks}
-        today={today}
-        weeklySection={
-          <WeeklyTodos initialTasks={weeklyTasks} weekSunday={weekSunday} />
-        }
-      />
+      <TaskBoard initialTasks={dayTasks} today={today} />
+
+      <WeeklyTodos initialTasks={weeklyTasks} weekSunday={weekSunday} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <SummerGoals initialGoals={initialGoals} />

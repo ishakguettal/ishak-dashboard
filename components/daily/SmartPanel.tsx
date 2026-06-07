@@ -3,6 +3,20 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils/cn";
 import { formatAED } from "@/lib/utils/format";
+import { ScoreBreakdownPanel } from "./ScoreBreakdownPanel";
+import { type ScoreBreakdown } from "@/lib/utils/dayscore";
+
+export type CoachData = {
+  scoreBreakdown: ScoreBreakdown;
+  sleepH: number;
+  sleepQuality: number;
+  waterMl: number;
+  waterTarget: number;
+  tasksComplete: number;
+  tasksTotal: number;
+  workoutStatus: "done" | "rest" | "pending" | "unknown";
+  lastWorkoutDaysAgo: number | null;
+};
 
 export type SmartData = {
   tasks: { completed: number; total: number; overdue: string[] };
@@ -22,6 +36,7 @@ export type SmartData = {
   body_weight: { last_kg: number; trend_7day: number };
   streak: { current: number; at_risk: boolean };
   time_of_day: "morning" | "midday" | "evening" | "night";
+  coach: CoachData;
 };
 
 type Dot = "green" | "amber" | "red" | "gray";
@@ -325,118 +340,88 @@ function FocusTab({ d }: { d: SmartData }) {
 
 /* ─────────────────────────── COACH ─────────────────────────── */
 
-type Chip = { label: string; href: string };
+const SECTION_LABEL =
+  "text-[10px] font-semibold uppercase tracking-[0.12em] text-muted";
 
-function buildCoach(d: SmartData): { paragraph: string; chips: Chip[] } {
-  const sentences: string[] = [];
-  const chips: Chip[] = [];
-  const training = !d.workout.is_rest_day;
-  const wType = titleizeType(d.workout.today_type);
-  const cur = (d.water.current_ml / 1000).toFixed(1);
-  const tgt = (d.water.target_ml / 1000).toFixed(1);
-  const waterPct = d.water.target_ml
-    ? Math.round((d.water.current_ml / d.water.target_ml) * 100)
-    : 0;
-  const left = d.tasks.total - d.tasks.completed;
+type Obs = { text: string; sev: number };
 
-  const addChip = (c: Chip) => {
-    if (chips.length < 4 && !chips.some((x) => x.label === c.label)) chips.push(c);
-  };
+/**
+ * 3 plain-English observations from real data, worst component scores first.
+ * `sev` is the underlying component's % of max (lower = more urgent).
+ */
+function buildGlance(c: SmartData["coach"], timeOfDay: SmartData["time_of_day"]): string[] {
+  const b = c.scoreBreakdown;
+  const out: Obs[] = [];
 
-  if (d.time_of_day === "morning") {
-    if (d.sleep.last_hours > 0 && d.sleep.last_hours < 6.5)
-      sentences.push(
-        `You ran on ${d.sleep.last_hours}h of sleep — pace the morning and don't redline early.`,
-      );
-    if (d.tasks.total > 0)
-      sentences.push(
-        `${d.tasks.total} task${d.tasks.total === 1 ? "" : "s"} on deck${d.tasks.completed > 0 ? `, ${d.tasks.completed} already done` : ""}.`,
-      );
-    if (training && d.back_pain.last_session >= 7)
-      sentences.push(
-        `Back was ${d.back_pain.last_session}/10 last session and today's ${wType} — warm up thoroughly and skip ego lifts.`,
-      );
-    else if (training)
-      sentences.push(`Today's a ${wType} day.`);
-    if (d.streak.current > 0)
-      sentences.push(`Your ${d.streak.current}-day streak is live — protect it.`);
-    if (d.supplements.overdue.length > 0)
-      sentences.push(`Still owed: ${joinNames(d.supplements.overdue)}.`);
-  } else if (d.time_of_day === "midday") {
-    sentences.push(
-      `Water's at ${cur}L of ${tgt}L (${waterPct}%)${waterPct < 50 ? " — pick up the pace" : ""}.`,
-    );
-    if (d.tasks.total > 0)
-      sentences.push(`${d.tasks.completed} of ${d.tasks.total} tasks done.`);
-    if (d.supplements.overdue.length > 0)
-      sentences.push(`${joinNames(d.supplements.overdue)} overdue — take them now.`);
-    if (training && d.back_pain.last_session >= 7)
-      sentences.push(`Keep the back in mind today — last session was ${d.back_pain.last_session}/10.`);
-    if (d.streak.at_risk)
-      sentences.push(`Streak's at risk — close the open gaps.`);
-  } else if (d.time_of_day === "evening") {
-    sentences.push("Time to close out the day.");
-    if (left > 0)
-      sentences.push(`${left} task${left === 1 ? "" : "s"} left.`);
-    if (d.water.current_ml < d.water.target_ml)
-      sentences.push(
-        `You're ${((d.water.target_ml - d.water.current_ml) / 1000).toFixed(1)}L short on water.`,
-      );
-    if (training && !d.workout.logged_today)
-      sentences.push(`Today's ${wType} session still isn't logged.`);
-    sentences.push("Plan tomorrow's tasks so you start sharp.");
-  } else {
-    // night
-    const todo: string[] = [];
-    if (d.tasks.total > 0 && left > 0) todo.push(`${left} task${left === 1 ? "" : "s"}`);
-    if (d.water.current_ml < d.water.target_ml) todo.push("water");
-    if (training && !d.workout.logged_today) todo.push("workout");
-    if (d.supplements.overdue.length > 0) todo.push("supplements");
-    if (!d.mood.logged_today) todo.push("mood & energy");
-    if (!d.mood.logged_today)
-      sentences.push("Log tonight's mood and energy before bed.");
-    if (d.streak.at_risk && todo.length > 0)
-      sentences.push(
-        `To protect your ${d.streak.current}-day streak, you still need: ${todo.join(", ")} before midnight.`,
-      );
-    else if (todo.length === 0)
-      sentences.push("Everything's logged — rest up.");
-    sentences.push("Set yourself up for an easy start tomorrow.");
+  const sleepPct = (b.sleep / 25) * 100;
+  const waterPct = c.waterTarget > 0 ? (c.waterMl / c.waterTarget) * 100 : 100;
+  const tasksPct = (b.tasks / 30) * 100;
+  const workoutPct = (b.workout / 20) * 100;
+
+  // Sleep (only when logged)
+  if (c.sleepH > 0) {
+    if (c.sleepH < 6.5)
+      out.push({
+        text: `You slept ${c.sleepH}h — below your threshold. Expect reduced focus today.`,
+        sev: sleepPct,
+      });
+    else if (c.sleepH >= 7.5)
+      out.push({ text: `Solid sleep last night (${c.sleepH}h). Good foundation.`, sev: sleepPct });
   }
 
-  // Chips — most urgent actions
-  if (d.supplements.overdue.length > 0)
-    addChip({ label: "Log supplements", href: "#health" });
-  if (training && !d.workout.logged_today)
-    addChip({ label: `Start ${wType}`, href: "/workouts" });
-  if (d.water.current_ml < d.water.target_ml)
-    addChip({ label: "Add water", href: "#health" });
-  if (d.sleep.last_hours <= 0) addChip({ label: "Log sleep", href: "#health" });
-  if (!d.mood.logged_today) addChip({ label: "Log mood", href: "#life" });
-  if (d.tasks.total > 0 && left > 0)
-    addChip({ label: "Finish tasks", href: "#tasks" });
+  // Water — only flag after midday
+  if (timeOfDay !== "morning" && waterPct < 40)
+    out.push({
+      text: `Water is behind — ${c.waterMl}ml of ${c.waterTarget}ml target.`,
+      sev: waterPct,
+    });
 
-  return { paragraph: sentences.join(" "), chips };
+  // Tasks
+  if (c.tasksTotal > 0 && c.tasksComplete >= c.tasksTotal)
+    out.push({ text: `All ${c.tasksTotal} tasks done.`, sev: tasksPct });
+  else if (c.tasksTotal > 0 && c.tasksComplete === 0)
+    out.push({ text: "No tasks completed yet.", sev: 0 });
+
+  // Workout
+  if (c.workoutStatus === "rest")
+    out.push({ text: "Rest day — recovery counts.", sev: workoutPct });
+  else if (c.workoutStatus === "done")
+    out.push({ text: "Workout logged.", sev: workoutPct });
+  else if (c.workoutStatus === "pending")
+    out.push({ text: "Workout still pending today.", sev: workoutPct });
+
+  return out
+    .sort((a, b) => a.sev - b.sev)
+    .slice(0, 3)
+    .map((o) => o.text);
 }
 
 function CoachTab({ d }: { d: SmartData }) {
-  const { paragraph, chips } = buildCoach(d);
+  const glance = buildGlance(d.coach, d.time_of_day);
   return (
-    <div>
-      <p className="text-sm leading-relaxed text-text">{paragraph}</p>
-      {chips.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {chips.map((c) => (
-            <a
-              key={c.label}
-              href={c.href}
-              className="rounded-full border border-amber-500/50 px-3 py-1 text-xs font-medium text-amber-500 transition-colors hover:bg-amber-500/10"
-            >
-              {c.label}
-            </a>
-          ))}
+    <div className="space-y-4">
+      <div>
+        <p className={SECTION_LABEL}>What&apos;s driving your score</p>
+        <div className="mt-2">
+          <ScoreBreakdownPanel data={d.coach.scoreBreakdown} />
         </div>
-      ) : null}
+      </div>
+
+      <div>
+        <p className={SECTION_LABEL}>Today at a glance</p>
+        {glance.length > 0 ? (
+          <ul className="mt-2 space-y-1.5">
+            {glance.map((t, i) => (
+              <li key={i} className="flex gap-2 text-sm text-text">
+                <span className="text-amber-500">·</span>
+                <span className="min-w-0">{t}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-muted">Nothing notable yet.</p>
+        )}
+      </div>
     </div>
   );
 }

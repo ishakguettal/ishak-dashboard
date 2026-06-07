@@ -4,8 +4,8 @@ import { useOptimistic, useState, useTransition } from "react";
 import { ListTodo } from "lucide-react";
 import { PRIORITIES, type Priority } from "@/lib/constants";
 import { addDaysISO, daysUntil, relativeDay, weekdayOf } from "@/lib/utils/date";
-import { titleize } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
+import { PriorityToggle } from "@/components/goals/PriorityToggle";
 import {
   TaskRow,
   byPriority,
@@ -67,12 +67,9 @@ const LABEL = "text-[10px] font-semibold uppercase tracking-[0.14em] text-[#444]
 export function TaskBoard({
   initialTasks,
   today,
-  weeklySection,
 }: {
   initialTasks: T[];
   today: string;
-  /** The "This week" section, rendered between Overdue and Today. */
-  weeklySection?: React.ReactNode;
 }) {
   const [items, dispatch] = useOptimistic(initialTasks, reducer);
   const [, startTransition] = useTransition();
@@ -215,9 +212,6 @@ export function TaskBoard({
           </div>
         ) : null}
 
-        {/* This week (weekly to-dos) */}
-        {weeklySection}
-
         {/* Today */}
         <div>
           <p className={cn(LABEL, "mb-1.5")}>Today</p>
@@ -299,18 +293,8 @@ function AddDatedForm({
         placeholder="Add a task…"
         className="h-11 flex-1 rounded-lg border border-[#272727] bg-[#0f0f0f] px-3 text-sm text-text placeholder:text-muted/60 focus:border-amber-500 focus:outline-none sm:h-10"
       />
-      <div className="flex gap-2">
-        <select
-          value={priority}
-          onChange={(e) => setPriority(e.target.value as Priority)}
-          className="h-11 w-28 rounded-lg border border-[#272727] bg-[#0f0f0f] px-2 text-sm text-text focus:border-amber-500 focus:outline-none sm:h-10"
-        >
-          {PRIORITIES.map((p) => (
-            <option key={p} value={p}>
-              {titleize(p)}
-            </option>
-          ))}
-        </select>
+      <div className="flex flex-wrap items-center gap-2">
+        <PriorityToggle value={priority} onChange={setPriority} className="px-1" />
         <input
           type="date"
           value={due}
